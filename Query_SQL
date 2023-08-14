@@ -1,57 +1,65 @@
-WITH QuestionScores AS
+DECLARE @location VARCHAR(255) = '##location##'
+DECLARE @tagname VARCHAR(255) = '##tagname##'
+DECLARE @ndays INT = '##ndays##'
+DECLARE @locationLower VARCHAR(255) = LOWER('%' + @location + '%')
+
+;WITH UserLocations AS 
 (
   SELECT
-    Users.Id AS [User Link],
-    SUM(Questions.Score) AS Score
-  FROM Posts as Questions 
-    INNER JOIN Users
-    ON Questions.OwnerUserId = Users.Id
-    
-    INNER JOIN PostTags 
-    ON PostTags.PostId = Questions.Id
-    
-    INNER JOIN Tags
-    on Tags.Id = PostTags.TagId
-  WHERE
-    LOWER(Location) LIKE LOWER('%##location##%')
-    and Tags.Tagname='##tagname##'
-  GROUP BY
-    Users.Id
+    Id,
+    LOWER(Location) AS Location
+  FROM Users
+  WHERE LOWER(Location) LIKE @locationLower
+),
+
+TaggedPosts AS 
+(
+  SELECT
+    Posts.Id,
+    OwnerUserId,
+    Score,
+    LastActivityDate,
+    PostTypeId
+  FROM Posts
+  INNER JOIN PostTags ON Posts.Id = PostTags.PostId
+  INNER JOIN Tags ON PostTags.TagId = Tags.Id
+  WHERE Tags.Tagname = @tagname
+),
+
+QuestionScores AS
+(
+  SELECT
+    UserLocations.Id AS [User Link],
+    SUM(TaggedPosts.Score) AS Score,
+    MAX(TaggedPosts.LastActivityDate) As Date
+  FROM TaggedPosts 
+  INNER JOIN UserLocations ON TaggedPosts.OwnerUserId = UserLocations.Id
+  WHERE TaggedPosts.PostTypeId = 1
+  GROUP BY UserLocations.Id
 ),
 
 AnswerScores AS
 (
   SELECT
-    Users.Id AS [User Link],
-    SUM(Answers.Score) AS Score
-  FROM Posts AS Answers 
-    INNER JOIN Posts AS ParentQuestions 
-    ON ParentQuestions.Id = Answers.ParentId
-    
-    INNER JOIN Users AS Users
-    ON Answers.OwnerUserId = Users.Id
-    
-    INNER JOIN PostTags 
-    ON PostTags.PostId = Answers.ParentId
-    
-    INNER JOIN Tags
-    ON Tags.Id = PostTags.TagId
-  WHERE
-    LOWER(Location) LIKE LOWER('%##location##%')
-    and Tags.Tagname='##tagname##'
-  GROUP BY
-    Users.Id
+    UserLocations.Id AS [User Link],
+    SUM(TaggedPosts.Score) AS Score,
+    MAX(TaggedPosts.LastActivityDate) As Date
+  FROM TaggedPosts 
+  INNER JOIN UserLocations ON TaggedPosts.OwnerUserId = UserLocations.Id
+  WHERE TaggedPosts.PostTypeId = 2
+  GROUP BY UserLocations.Id
 )
 
 SELECT 
-  TOP 100
+  TOP 150
   ISNULL(QuestionScores.[User Link], AnswerScores.[User Link]) as [User Link],
   ISNULL(QuestionScores.Score, 0) as [Question Score],
   ISNULL(AnswerScores.Score, 0) as [Answer Score],
   ISNULL(QuestionScores.Score, 0) + ISNULL(AnswerScores.Score, 0) as [Total Score]
 FROM
   QuestionScores
-FULL JOIN AnswerScores 
-  ON QuestionScores.[User Link] = AnswerScores.[User Link]
+FULL JOIN AnswerScores ON QuestionScores.[User Link] = AnswerScores.[User Link]
+WHERE
+  DateDiff(day, ISNULL(QuestionScores.Date, AnswerScores.Date), getDate()) < @ndays
 ORDER BY
   [Total Score] DESC;
